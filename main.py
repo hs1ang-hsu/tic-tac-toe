@@ -2,11 +2,10 @@
 import tensorflow as tf
 import numpy as np
 from keras.models import Sequential
-from keras.layers import Dense
+from keras.layers import Dense, Dropout
 from keras import optimizers
 import pygame
-import math
-
+import AlphaBetaPruning.minimax_tree as ABP
 pygame.init()  # 初始化
 pygame.mixer.init()  # 初始化混音器
 
@@ -151,9 +150,8 @@ class Player:
 
 
 class AI:
-    def __init__(self, sign, diff):
+    def __init__(self, sign):
         self.sign = sign
-        self.diff = diff
         self.model = self.build_net()
 
         if(self.sign == 'O'):
@@ -161,16 +159,15 @@ class AI:
         elif(self.sign == 'X'):
             self.label = -1
 
-        if(diff == 'easy'):
-            self.model.load_weights('tictactoeAI_easy.h5')
-        elif(diff == 'hard'):
-            self.model.load_weights('tictactoeAI_hard.h5')
+        self.model.load_weights('source\\AI_model\\tictactoeAI.h5')
 
     def build_net(self):
         # 兩層隱藏層，都為32層，因此神經網路為26>32>32>25
         model = Sequential()
-        model.add(Dense(32, activation='relu', input_shape=(26,)))
-        model.add(Dense(32, activation='relu'))
+        model.add(Dense(64, activation='relu', input_shape=(26,)))
+        #model.add(Dropout(0.2))
+        model.add(Dense(64, activation='relu'))
+        model.add(Dense(64, activation='relu'))
         model.add(Dense(25, activation='relu'))
         adam = optimizers.Adam(lr=0.0001)
         model.compile(loss='mse', optimizer=adam)
@@ -188,9 +185,16 @@ class AI:
             if(tmp_state[i] != 0):
                 q_value[i] = min_v
         action = np.argmax(q_value)  # 選擇報酬最高的位置
-        action = [action % 5, math.floor(action / 5)]
+        action = [action % 5, action // 5]
         return action
 
+class AI_ABP: # alpha-beta pruning
+    def __init__(self, sign):
+        self.sign = sign
+
+    def get_action(self, state):
+        action = ABP.get_next_step(state)
+        return action[:]
 
 ######################################################
 #                       變數                         #
@@ -201,7 +205,7 @@ pygame.display.set_caption('井字遊戲')  # 視窗名稱
 board = Board()  # 棋盤
 next_scene = 0  # 下個場景
 sign = 'O'  # AI是先手或後手
-diff = 'easy'  # 簡單或困難
+mode = 'RL'  # RL或ABP
 
 # 色碼
 board_color = (241, 130, 27)  # 棋盤顏色
@@ -216,20 +220,20 @@ main_background_color = (60, 83, 127)  # 遊戲背景顏色
 
 # 字體
 def display_text(string, x, y, size, win):
-    font = pygame.font.Font("msjhbd.ttc", size)
+    font = pygame.font.Font("source\\font\\msjhbd.ttc", size)
     text = font.render(string, True, (60, 83, 127))
     text_rect = text.get_rect(center=(x, y))
     win.blit(text, text_rect)
 
 # 圖片(img資料夾)
-X_img = pygame.image.load("img\\cross.png")
+X_img = pygame.image.load("source\\img\\cross.png")
 X_img.convert()
-O_img = pygame.image.load("img\\circle.png")
+O_img = pygame.image.load("source\\img\\circle.png")
 O_img.convert()
 
 # 音效
-click = pygame.mixer.Sound('click2.wav')
-chess = pygame.mixer.Sound('chess.wav')
+click = pygame.mixer.Sound('source\\music\\click2.wav')
+chess = pygame.mixer.Sound('source\\music\\chess.wav')
 
 ######################################################
 #                     遊戲本體                       #
@@ -358,7 +362,7 @@ def main_1P():
     global board
     if(sign == 'X'):  # 若玩家為後手
         player1 = Player(sign)
-        player2 = AI('O', diff)
+        player2 = AI('O')
 
         running = True
         end = False
@@ -412,7 +416,7 @@ def main_1P():
             pygame.display.flip()
     else:
         player1 = Player(sign)
-        player2 = AI('X', diff)
+        player2 = AI('X')
 
         running = True
         end = False
@@ -461,9 +465,113 @@ def main_1P():
                 board.end_game(win)
             pygame.display.flip()
 
+def main_1P_ABP():
+    global board
+    if(sign == 'X'):  # 若玩家為後手
+        player1 = Player(sign)
+        player2 = AI_ABP('O')
 
-def difficulty():
-    global next_scene, diff
+        running = True
+        end = False
+        while running:
+            win.fill(main_background_color)  # 先上背景色
+
+            for event in pygame.event.get():
+                if event.type == pygame.KEYDOWN:  # 判斷按下按鈕
+                    if event.key == pygame.K_ESCAPE:  # 判斷按下ESC按鈕
+                        next_scene = 5
+                        page(next_scene)
+                if event.type == pygame.QUIT:
+                    running = False
+                    pygame.quit()
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    if pygame.mouse.get_pressed()[0]:  # 當按下左鍵
+                        if(end):  # 當遊戲結束
+                            running = False
+
+                        pos = pygame.mouse.get_pos()
+                        # 玩家後手才能下棋
+                        if(board.game_round != 11 and board.game_round % 2 == 1):
+                                # 若成功執行動作
+                                if(board.action(pos[0], pos[1], player1)):
+                                    board.action_count += 1
+                                    if(board.action_count == 2):
+                                        board.game_round += 1
+                                        board.action_count = 0
+                        # 最後一輪
+                        elif(board.game_round == 11):
+                            # 若成功執行動作
+                            if(board.action(pos[0], pos[1], player1)):
+                                board.action_count += 1
+                                if(board.action_count == 3):  # 結束遊戲
+                                    end = True
+            if(board.game_round != 11 and board.game_round % 2 == 0):  # AI先手下棋
+                act = player2.get_action(board.board_state)  # 取得下棋位置
+                board.set_board_value(act[0] % 5, act[0] // 5, player2.sign)  # 執行動作
+                board.set_board_value(act[1] % 5, act[1] // 5, player2.sign)
+                board.game_round += 1
+                board.action_count = 0
+            
+            if(board.game_round % 2 == 0):
+                pygame.draw.rect(win, play_turn_color, [575, 100, 200, 150], 15)
+            else:
+                pygame.draw.rect(win, play_turn_color, [575, 300, 200, 150], 15)
+            board.draw_board(win)
+            if(end):
+                board.end_game(win)
+            pygame.display.flip()
+    else:
+        player1 = Player(sign)
+        player2 = AI_ABP('X')
+
+        running = True
+        end = False
+        while running:
+            win.fill(main_background_color)  # 先上背景色
+
+            for event in pygame.event.get():
+                if event.type == pygame.KEYDOWN:  # 判斷按下按鈕
+                    if event.key == pygame.K_ESCAPE:  # 判斷按下ESC按鈕
+                        next_scene = 5
+                        page(next_scene)
+                if event.type == pygame.QUIT:
+                    running = False
+                    pygame.quit()
+                if event.type == pygame.MOUSEBUTTONDOWN:
+                    if pygame.mouse.get_pressed()[0]:  # 當按下左鍵
+                        if(end):  # 當遊戲結束
+                            running = False
+
+                        pos = pygame.mouse.get_pos()
+                        # 玩家先手下棋
+                        if(board.game_round != 11 and board.game_round % 2 == 0):
+                            # 若成功執行動作
+                            if(board.action(pos[0], pos[1], player1)):
+                                board.action_count += 1
+                                if(board.action_count == 2):
+                                    board.game_round += 1
+                                    board.action_count = 0
+            if(board.game_round != 11 and board.game_round % 2 == 1):  # AI後手下棋
+                act = player2.get_action(board.board_state)  # 取得下棋位置
+                board.set_board_value(act[0] % 5, act[0] // 5, player2.sign)  # 執行動作
+                board.set_board_value(act[1] % 5, act[1] // 5, player2.sign)
+                board.game_round += 1
+                board.action_count = 0
+            elif(board.game_round == 11):  # 最後一輪
+                board.fill_with_cross()
+                end = True
+            
+            if(board.game_round % 2 == 0):
+                pygame.draw.rect(win, play_turn_color, [575, 100, 200, 150], 15)
+            else:
+                pygame.draw.rect(win, play_turn_color, [575, 300, 200, 150], 15)
+            board.draw_board(win)
+            if(end):
+                board.end_game(win)
+            pygame.display.flip()
+
+def mode_select():
+    global next_scene, mode
     running = True
     while running:
         for event in pygame.event.get():
@@ -475,12 +583,12 @@ def difficulty():
                     pos = pygame.mouse.get_pos()
                     if(250 <= pos[0] <= 550 and 125 <= pos[1] <= 275):
                         next_scene = 2
-                        diff = 'hard'
+                        mode = 'RL'
                         page(next_scene)
                         running = False
                     if(250 <= pos[0] <= 550 and 325 <= pos[1] <= 475):
                         next_scene = 2
-                        diff = 'easy'
+                        mode = 'ABP'
                         page(next_scene)
                         running = False
                     if(10 <= pos[0] <= 130 and 464 <= pos[1] <= 544):
@@ -491,8 +599,8 @@ def difficulty():
         pygame.draw.rect(win, menu_button_color, [250, 125, 300, 150], 0)
         pygame.draw.rect(win, menu_button_color, [250, 325, 300, 150], 0)
         pygame.draw.rect(win, menu_button_color, [10, 464, 120, 80], 0)
-        display_text('困難', 400, 200, 60, win)
-        display_text('簡單', 400, 400, 60, win)
+        display_text('簡單', 400, 200, 60, win)
+        display_text('困難', 400, 400, 60, win)
         display_text('返回', 70, 500, 40, win)
         pygame.display.update()
 
@@ -534,7 +642,7 @@ def order():
 
 def rule():
     win.fill(menu_background_color)
-    rule_img = pygame.image.load("img\\rule.png")
+    rule_img = pygame.image.load("source\\img\\rule.png")
     rule_img.convert()
     win.blit(rule_img, [125, 100])
     global next_scene
@@ -575,18 +683,20 @@ def page(next_scene):  # 處理場景切換的函數
                     menu()
                 elif(next_scene == 1):
                     click.play()
-                    difficulty()
+                    mode_select()
                 elif(next_scene == 2):
                     click.play()
                     order()
                 elif(next_scene == 3):
                     if (scene_record[-2] == 5):
                         click.play()
-                        main_1P()
                     else:
                         click.play()
                         board.initialize()
+                    if mode == 'RL':
                         main_1P()
+                    else:
+                        main_1P_ABP()
                 elif(next_scene == 4):
                     if (scene_record[-2] == 5):
                         click.play()

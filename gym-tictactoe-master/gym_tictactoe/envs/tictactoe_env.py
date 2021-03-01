@@ -47,16 +47,18 @@ class TicTacToeEnv(gym.Env):
                 X += 1
             elif(O_score[i] >= 4):
                 O += 1
-
+        
         # 檢查是否已完成棋盤，並在此給予未完成盤面時的回饋值
         for i in range(self.SIZE):
             for j in range(self.SIZE):
                 if(self.board[i][j] == 0):
                     if(action[2] == 1):
-                        return self.board, pos_reward*O+neg_reward*X, False, {}
+                        #return self.board, pos_reward*O+neg_reward*X, False, {}
+                        return self.board, 0, False, {}
                     else:
-                        return self.board, pos_reward*X+neg_reward*O, False, {}
-
+                        #return self.board, pos_reward*X+neg_reward*O, False, {}
+                        return self.board, 0, False, {}
+                        
         # 在此給予完成盤面後的回饋值
         if(action[2] == 1):
             if(O > X):

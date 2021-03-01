@@ -1,0 +1,10 @@
+Metadata-Version: 1.2
+Name: gym-tictactoe
+Version: 0.0.1
+Summary: OpenAI Gym environment for tictactoe
+Home-page: UNKNOWN
+Author: Hsu Chih-Hsiang
+License: UNKNOWN
+Description: UNKNOWN
+Platform: UNKNOWN
+Requires-Python: >=3.7

@@ -3,11 +3,10 @@ import numpy as np
 import random
 from collections import deque
 import gym
-import gym_tictactoe
 import math
 import os
 from keras.models import Sequential
-from keras.layers import Dense
+from keras.layers import Dense, Dropout
 from keras import optimizers
 
 np.random.seed(123)
@@ -16,12 +15,13 @@ for env in env_dict:
     if 'tictactoe' in env:
         print('Remove {} from registry'.format(env))
         del gym.envs.registration.registry.env_specs[env]
+import gym_tictactoe
 
 GAMMA = 0.9  # Q_value的discount rate，以便計算未來reward的折扣回報
-INITIAL_EPSILON = 0.2  # 貪婪選擇法的隨機選擇行為的程度
-DECAY_RATIO = 0.995  # epsilon衰減的速度
-FINAL_EPSILON = 0.05  # 當epsilon到達這個值就不再衰減
-LEARNING_RATE = 0.0001  # 神經網路的學習綠
+INITIAL_EPSILON = 0.3  # 貪婪選擇法的隨機選擇行為的程度
+DECAY_RATIO = 0.998  # epsilon衰減的速度
+FINAL_EPSILON = 0.01  # 當epsilon到達這個值就不再衰減
+LEARNING_RATE = 0.0001  # 神經網路的學習率
 
 REPLAY_SIZE = 10000  # 經驗回放空間
 BATCH_SIZE = 200  # 小批量尺寸
@@ -53,11 +53,13 @@ class DQN():  # DQN Agent
     def build_net(self):  # 建構出神經網路
         # 兩層隱藏層，且皆為32層，因此神經網路為26>32>32>25
         model = Sequential()
-        model.add(Dense(32, activation='relu', input_shape=(self.state_dim,)))
-        model.add(Dense(32, activation='relu'))
+        model.add(Dense(64, activation='relu', input_shape=(self.state_dim,)))
+        model.add(Dense(64, activation='relu'))
+        model.add(Dense(64, activation='relu'))
         model.add(Dense(self.action_dim, activation='relu'))
         adam = optimizers.Adam(lr=LEARNING_RATE)
         model.compile(loss='mse', optimizer=adam)
+        
         return model
 
     def copyWeightsToTarget(self):  # 把訓練中的模型複製到目標模型上
@@ -125,21 +127,21 @@ class DQN():  # DQN Agent
 
 # ---------------------------------------------------------
 ENV_NAME = 'tictactoe-v0'
-EPISODE = 30  # Episode limitation
-STEP = 25  # Step limitation in an episode
+EPISODE = 50000  # Episode limitation
+STEP = 12  # Step limitation in an episode
 TEST = 1  # The number of experiment test every 100 episode
-
-O_step_list = [0, 1, 4, 5, 8, 9, 12, 13, 16, 17, 20, 21]  # 輪到圈圈的步數
-
 
 def main():
     # data存取「X贏」、「O贏」和「平手」的次數
     file = open('result.txt', 'r')
     data = file.read()
-    data = data.split(',')
-    for i in range(len(data)):
-        data[i] = int(data[i])
-    file.close()
+    if not data:
+        data = [0]*3
+    else:
+        data = data.split(',')
+        for i in range(len(data)):
+            data[i] = int(data[i])
+        file.close()
     file = open('result.txt', 'w+')
 
     # initialize OpenAI Gym env and dqn agent
@@ -153,7 +155,7 @@ def main():
         # initialize task
         state = env.reset()
 
-        camp = -1
+        camp = 1 # 'O':1 'X':-1
         state = np.reshape(state, [-1])
         state = np.append(state, camp)
 
@@ -161,22 +163,45 @@ def main():
 
         # Train
         for step in range(STEP):
-            # 自己下一步棋
-            action = agent.egreedy_action(np.array([state]))
-            action = [math.floor(action / SIZE), action % SIZE, camp]
-            next_state, reward, done, _ = env.step(action)
-            next_state = np.reshape(next_state, [-1])
-            if step in O_step_list:
-                camp = 1
-            else:
+            # 計算下一步棋
+            if step&1: #輪到X
                 camp = -1
-            next_state = np.append(next_state, camp)
-
-            # 紀錄盤面
-            agent.remember(state, action, reward, next_state, done)
-            state = next_state
-
+                if step == 11: # 如果是最後一輪
+                    n = 3
+                else:
+                    n = 2
+                for i in range(n): # 最後一輪連走三手，其他時候連走兩手
+                    action = agent.egreedy_action(np.array([state]))
+                    action = [action//SIZE, action%SIZE, camp]
+                    next_state, reward, done, _ = env.step(action)
+                    next_state = np.reshape(next_state, [-1])
+                    if i < n-1: # 下一手換誰
+                        camp = -1
+                    else:
+                        camp = 1
+                    next_state = np.append(next_state, camp)
+                    # 紀錄盤面
+                    agent.remember(state, action, reward, next_state, done)
+                    state = next_state
+            else: # 輪到O
+                camp = 1
+                for i in range(2): # 連走兩手
+                    action = agent.egreedy_action(np.array([state]))
+                    action = [action//SIZE, action%SIZE, camp]
+                    next_state, reward, done, _ = env.step(action)
+                    next_state = np.reshape(next_state, [-1])
+                    if i == 0: # 下一手換誰
+                        camp = 1
+                    else:
+                        camp = -1
+                    next_state = np.append(next_state, camp)
+                    # 紀錄盤面
+                    agent.remember(state, action, reward, next_state, done)
+                    state = next_state
+            #print(reward)
+            
             # 統計誰勝利或平手的次數
+            '''
             if done:
                 if(reward == 10):
                     data[0] += 1
@@ -184,7 +209,8 @@ def main():
                     data[1] += 1
                 else:
                     data[2] += 1
-                break
+            '''
+    agent.model.save_weights('tictactoeAI.h5', overwrite=True)
     file.write(str(data[0]) + ',' + str(data[1]) + ',' + str(data[2]))
     file.close()
 
